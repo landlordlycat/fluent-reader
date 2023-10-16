@@ -1,8 +1,13 @@
-import Parser from "@yang991178/rss-parser"
 import intl from "react-intl-universal"
 import * as db from "../db"
 import lf from "lovefield"
-import { fetchFavicon, ActionStatus, AppThunk, parseRSS } from "../utils"
+import {
+    fetchFavicon,
+    ActionStatus,
+    AppThunk,
+    parseRSS,
+    MyParserItem,
+} from "../utils"
 import {
     RSSItem,
     insertItems,
@@ -41,6 +46,7 @@ export class RSSSource {
     fetchFrequency: number // in minutes
     rules?: SourceRule[]
     textDir: SourceTextDirection
+    hidden: boolean
 
     constructor(url: string, name: string = null) {
         this.url = url
@@ -49,6 +55,7 @@ export class RSSSource {
         this.lastFetched = new Date()
         this.fetchFrequency = 0
         this.textDir = SourceTextDirection.LTR
+        this.hidden = false
     }
 
     static async fetchMetaData(source: RSSSource) {
@@ -62,7 +69,7 @@ export class RSSSource {
 
     private static async checkItem(
         source: RSSSource,
-        item: Parser.Item
+        item: MyParserItem
     ): Promise<RSSItem> {
         let i = new RSSItem(item, source)
         const items = (await db.itemsDB
@@ -88,7 +95,7 @@ export class RSSSource {
 
     static checkItems(
         source: RSSSource,
-        items: Parser.Item[]
+        items: MyParserItem[]
     ): Promise<RSSItem[]> {
         return new Promise<RSSItem[]>((resolve, reject) => {
             let p = new Array<Promise<RSSItem>>()
@@ -120,6 +127,8 @@ export const ADD_SOURCE = "ADD_SOURCE"
 export const UPDATE_SOURCE = "UPDATE_SOURCE"
 export const UPDATE_UNREAD_COUNTS = "UPDATE_UNREAD_COUNTS"
 export const DELETE_SOURCE = "DELETE_SOURCE"
+export const HIDE_SOURCE = "HIDE_SOURCE"
+export const UNHIDE_SOURCE = "UNHIDE_SOURCE"
 
 interface InitSourcesAction {
     type: typeof INIT_SOURCES
@@ -151,12 +160,19 @@ interface DeleteSourceAction {
     source: RSSSource
 }
 
+interface ToggleSourceHiddenAction {
+    type: typeof HIDE_SOURCE | typeof UNHIDE_SOURCE
+    status: ActionStatus
+    source: RSSSource
+}
+
 export type SourceActionTypes =
     | InitSourcesAction
     | AddSourceAction
     | UpdateSourceAction
     | UpdateUnreadCountsAction
     | DeleteSourceAction
+    | ToggleSourceHiddenAction
 
 export function initSourcesRequest(): SourceActionTypes {
     return {
@@ -307,7 +323,8 @@ export function addSource(
                 if (!batch) {
                     window.utils.showErrorBox(
                         intl.get("sources.errorAdd"),
-                        String(e)
+                        String(e),
+                        intl.get("context.copy")
                     )
                 }
                 throw e
@@ -379,6 +396,19 @@ export function deleteSources(sources: RSSSource[]): AppThunk<Promise<void>> {
             await dispatch(deleteSource(source, true))
         }
         dispatch(saveSettings())
+    }
+}
+
+export function toggleSourceHidden(source: RSSSource): AppThunk<Promise<void>> {
+    return async (dispatch, getState) => {
+        const sourceCopy: RSSSource = { ...getState().sources[source.sid] }
+        sourceCopy.hidden = !sourceCopy.hidden
+        dispatch({
+            type: sourceCopy.hidden ? HIDE_SOURCE : UNHIDE_SOURCE,
+            status: ActionStatus.Success,
+            source: sourceCopy,
+        })
+        await dispatch(updateSource(sourceCopy))
     }
 }
 
